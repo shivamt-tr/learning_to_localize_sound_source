@@ -1,0 +1,4 @@
+video_samples/
+*.pth
+*.pyc
+*.png
