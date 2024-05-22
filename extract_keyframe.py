@@ -1,8 +1,7 @@
 import cv2
 import librosa
-import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
+import soundfile as sf
 
 import torch
 import torch.nn.functional as F
@@ -11,6 +10,8 @@ import torchvision.transforms as transforms
 from network import AVModel
 from soundnet import SoundNet
 
+
+SR = 22000
 mean = [0.485, 0.456, 0.406]
 std = [0.229, 0.224, 0.225]
 image_transforms = transforms.Compose([transforms.Resize((320, 320)),   # AVModel expects 320x320 input
@@ -18,15 +19,8 @@ image_transforms = transforms.Compose([transforms.Resize((320, 320)),   # AVMode
                                        transforms.Normalize(mean=mean, std=std)])
 
 
-def unnormalize(tensor, mean, std):
-    for t, m, s in zip(tensor, mean, std):
-        t.mul_(s).add_(m)
-    return tensor
+def extract_frames(video_path):
 
-
-def extract_frames_and_audio(video_path):
-
-    # extract frames
     cap = cv2.VideoCapture(video_path)
     frames = []
     while True:
@@ -36,19 +30,11 @@ def extract_frames_and_audio(video_path):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frames.append(Image.fromarray(frame))
     cap.release()
-    frames = torch.cat([image_transforms(f).unsqueeze(0) for f in frames])    # 250x3x320x320
-
-    fps = cap.get(cv2.CAP_PROP_FPS)   # 25
-
-    # extract audio
-    audio, sr = librosa.load(video_path, sr=22000, mono=True)     # audio = (220172,), 22kHz used in SoundNet
-    audio = audio * (2 ** -23)
-    audio = torch.from_numpy(audio).float().view(1, 1, -1, 1)     # batch, channels, length, extra = 1, 1, 220172, 1
     
-    return frames, audio, sr, fps
+    return frames
 
 
-def get_keyframe(model, frames, audio):
+def get_keyframe(device, model, frames, audio):
 
     highest_corr = float('-inf')
     key_frame = None
@@ -69,10 +55,12 @@ def get_keyframe(model, frames, audio):
 
     for i, frame in enumerate(frames):
 
+        transformed_frame = image_transforms(frame).unsqueeze(0).to(device)   # 1x3x320x320
+
         # process frame embedding
         with torch.no_grad():
-            vis_embedding = model.vision_embedding_model(frame).unsqueeze(0)                   # 1x512x20x20
-
+            vis_embedding = model.vision_embedding_model(transformed_frame)   # 1x512x20x20
+        
         # normalize vision embedding across channel dimension
         normalized_vis_embedding = F.normalize(vis_embedding, p=2, dim=1)     # 1x512x20x20
         reshaped_vis_embedding = normalized_vis_embedding.view(normalized_vis_embedding.size(0), 512, 400)
@@ -97,12 +85,7 @@ def get_keyframe(model, frames, audio):
             key_frame = frame
             frame_idx = i
 
-    print(f"{frame_idx+1} frame selected out of 250 frames")
-    # print(torch.max(key_frame), torch.min(key_frame))
-    key_frame = unnormalize(key_frame, mean, std)  # Unnormalize the tensor
-    key_frame = key_frame.permute(1, 2, 0).cpu().numpy()
-    key_frame = np.clip(key_frame * 255, 0, 255).astype(np.uint8)
-    key_frame = Image.fromarray(key_frame)
+    # print(f"{frame_idx+1} frame selected out of 250 frames")
 
     return key_frame
 
@@ -119,13 +102,23 @@ if __name__ == "__main__":
 
     video_path = 'video_samples/-0sDdBQt3Gc_"Railroad car, train wagon, Rail transport, Train, Vehicle".mp4'
     
-    # sr=44100, fps=25, frames=250x3x320x320, #audio=441344
-    frames, audio, sr, fps = extract_frames_and_audio(video_path)
-    frames, audio = frames.to(device), audio.to(device)
+    # frames=250x3x320x320, # audio=(22012,)
+    frames= extract_frames(video_path)
+    # extract audio
+    audio, sr = librosa.load(video_path, sr=22000, mono=True)     # audio = (220172,), 22kHz used in SoundNet
+
+    # preprocess audio for soundnet
+    audio_input = audio * (2 ** -23)
+    audio_input = torch.from_numpy(audio_input).float().view(1, 1, -1, 1)   # batch, channels, length, extra = 1, 1, 220172, 1
+    audio_input = audio_input.to(device)
     
     # AVModel uses the output features of "object" branch of Conv8 layer from SoundNet model 
-    audio_soundnet_features = soundnet(audio)     # 1x1000x1x1
+    audio_soundnet_features = soundnet(audio_input)     # 1x1000x1x1
     audio_soundnet_features = audio_soundnet_features.squeeze().view(1, -1)   # 1x1000
 
-    key_frame_image = get_keyframe(model, frames, audio_soundnet_features)
+    key_frame_image = get_keyframe(device, model, frames, audio_soundnet_features)
+    
+    # save key-frame and audio
     key_frame_image.save("keyframe.png")
+    sf.write("audio.wav", audio, 22000)
+    
