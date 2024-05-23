@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from PIL import Image
 import soundfile as sf
+from multiprocessing import Pool
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -129,15 +130,9 @@ def get_keyframe(frames, audio, device, model, soundnet):
     return key_frame
 
 
-if __name__ == "__main__":
-
+def process_video(video_file):
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    video_folder = '/shika_backup/data3/shivam/raw_data/vggsound'
-    save_at = '/shika_data4/shivam/dataset/vggsound_processed/'
-    os.makedirs(save_at, exist_ok=True)
-    os.makedirs(os.path.join(save_at, 'images'), exist_ok=True)
-    os.makedirs(os.path.join(save_at, 'audio'), exist_ok=True)
 
     model = AVModel().to(device).eval()
     model.load_state_dict(torch.load("sound_localization_latest.pth"))
@@ -145,27 +140,40 @@ if __name__ == "__main__":
     soundnet = SoundNet().to(device).eval()
     soundnet.load_state_dict(torch.load("soundnet8_final.pth"))
 
-    error_count = 0
-    pbar = tqdm(total=len(os.listdir(video_folder)), initial=0, desc="Processing")
-    for video_file in os.listdir(video_folder):
-        if video_file.endswith(".mp4"):
-            video_path = os.path.join(video_folder, video_file)
-            try:
-                frames = extract_frames(video_path)             # frames=250x3x320x320,
-                audio = extract_audio(video_path)               # audio=(220672,)
-                if audio is None:
-                    error_count += 1
-                    continue
-                key_frame = get_keyframe(frames, audio, device, model, soundnet)
-        
-                # save key-frame and audio
-                video_name = os.path.splitext(os.path.basename(video_file))[0]
-                key_frame.save(os.path.join(save_at, "images", f"{video_name}.png"))
-                sf.write(os.path.join(save_at, "audio", f"{video_name}.wav"), audio, sample_rate)
-            except Exception as e:
-                print("Error in processing video: ", e)
-                error_count += 1
-        pbar.set_description(f"Errors: {error_count}")
-        pbar.update(1)
+    frames = extract_frames(video_file)     # frames=250x3x320x320
+    audio = extract_audio(video_file)       # audio=(220672,)
+    if audio is None:
+        return None, None
 
-    print(f"Total number of files: {len(os.listdir(video_folder))}, and {error_count} files could not be processed")
+    key_frame = get_keyframe(frames, audio, device, model, soundnet)
+    return key_frame, audio
+
+
+if __name__ == "__main__":
+    
+    video_folder = '/shika_backup/data3/shivam/raw_data/vggsound'
+    save_at = '/shika_data4/shivam/dataset/vggsound_processed/'
+    os.makedirs(save_at, exist_ok=True)
+    os.makedirs(os.path.join(save_at, 'images'), exist_ok=True)
+    os.makedirs(os.path.join(save_at, 'audio'), exist_ok=True)
+
+    video_files = [os.path.join(video_folder, f) for f in os.listdir(video_folder) if f.endswith(".mp4")]
+
+    def process_and_save(video_file):
+        try:
+            key_frame, audio = process_video(video_file)
+            if key_frame is None or audio is None:
+                return False
+            video_name = os.path.splitext(os.path.basename(video_file))[0]
+            key_frame.save(os.path.join(save_at, "images", f"{video_name}.png"))
+            sf.write(os.path.join(save_at, "audio", f"{video_name}.wav"), audio, sample_rate)
+            return True
+        except Exception as e:
+            print(f"Error in processing video: {e}")
+            return False
+
+    with Pool(processes=4) as pool:
+        results = list(tqdm(pool.imap(process_and_save, video_files), total=len(video_files)))
+
+    error_count = len(video_files) - sum(results)
+    print(f"Total number of files: {len(video_files)}, and {error_count} files could not be processed")
