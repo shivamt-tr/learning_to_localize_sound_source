@@ -1,5 +1,6 @@
 import os
 import cv2
+import time
 import librosa
 import argparse
 import numpy as np
@@ -18,7 +19,7 @@ from network import AVModel
 from soundnet import SoundNet
 
 
-sample_rate = 22050
+sample_rate = 22050  # for SoundNet model input
 mean = [0.485, 0.456, 0.406]
 std = [0.229, 0.224, 0.225]
 image_transforms = transforms.Compose([transforms.Resize((320, 320)),   # AVModel expects 320x320 input
@@ -35,7 +36,7 @@ def extract_frames(video_path):
         if not ret:
             break
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames.append(Image.fromarray(frame))
+        frames.append(Image.fromarray(frame))                                  # save each frame as a PIL
     cap.release()
     
     return frames
@@ -43,19 +44,19 @@ def extract_frames(video_path):
 
 def extract_audio(video_path, target_length=220672):
 
-    try:
-        # extract audio (the range of values is [-1, 1])
-        audio, _ = librosa.load(video_path, sr=sample_rate, mono=True)          # audio = (220672,), 22.05kHz and mono for input to SoundNet
-        np.clip(audio, -1, 1, out=audio)                                        # clip the samples to be in the range [-1, 1]
-        audio = np.tile(audio, 10)[:target_length]                              # repeat the audio samples and select a fixed size to maintain consistency across different length audio
+    # try:
+    # extract audio (the range of values is [-1, 1])
+    audio, _ = librosa.load(video_path, sr=sample_rate, mono=True)          # audio = (220672,), 22.05kHz and mono for input to SoundNet
+    np.clip(audio, -1, 1, out=audio)                                        # clip the samples to be in the range [-1, 1]
+    audio = np.tile(audio, 10)[:target_length]                              # repeat the audio samples and select a fixed size to maintain consistency across different length audio
 
-        # if audio length is less than the target length, pad with zeros
-        if audio.shape[0] < target_length:
-            audio = np.pad(audio, (0, target_length - audio.shape[0]), 'constant')
+    # if audio length is less than the target length, pad with zeros
+    if audio.shape[0] < target_length:
+        audio = np.pad(audio, (0, target_length - audio.shape[0]), 'constant')
         
-    except Exception as e:
-        print(f"Error extracting audio from {video_path}: {e}")
-        return None
+    # except Exception as e:
+    #     print(f"Error extracting audio from {video_path}: {e}")
+    #     return None
 
     return audio
 
@@ -131,13 +132,17 @@ def get_keyframe(frames, audio, device, model, soundnet):
 
 if __name__ == "__main__":
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str)
+    parser.add_argument("--save_dir", type=str)
+    parser.add_argument("--num_workers", type=int, default=4)
+    args = parser.parse_args()
+    
+    os.makedirs(args.save_dir, exist_ok=True)
+    os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
+    os.makedirs(os.path.join(args.save_dir, 'audio'), exist_ok=True)
 
-    video_folder = '/shika_data4/shivam/video_samples'
-    save_at = '/shika_data4/shivam/processed_normalized/'
-    os.makedirs(save_at, exist_ok=True)
-    os.makedirs(os.path.join(save_at, 'images'), exist_ok=True)
-    os.makedirs(os.path.join(save_at, 'audio'), exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = AVModel().to(device).eval()
     model.load_state_dict(torch.load("sound_localization_latest.pth"))
@@ -146,26 +151,36 @@ if __name__ == "__main__":
     soundnet.load_state_dict(torch.load("soundnet8_final.pth"))
 
     error_count = 0
-    pbar = tqdm(total=len(os.listdir(video_folder)), initial=0, desc="Processing")
-    for video_file in os.listdir(video_folder):
+    pbar = tqdm(total=len(os.listdir(args.data_dir)), initial=0, desc="Processing")
+    for video_file in os.listdir(args.data_dir):
         if video_file.endswith(".mp4"):
-            video_path = os.path.join(video_folder, video_file)
-            try:
-                frames = extract_frames(video_path)             # frames=250x3x320x320,
-                audio = extract_audio(video_path)               # audio=(220672,)
-                if audio is None:
-                    error_count += 1
-                    continue
-                key_frame = get_keyframe(frames, audio, device, model, soundnet)
-        
-                # save key-frame and audio
-                video_name = os.path.splitext(os.path.basename(video_file))[0]
-                key_frame.save(os.path.join(save_at, "images", f"{video_name}.png"))
-                sf.write(os.path.join(save_at, "audio", f"{video_name}.wav"), audio, sample_rate)
-            except Exception as e:
-                print("Error in processing video: ", e)
-                error_count += 1
+            video_path = os.path.join(args.data_dir, video_file)
+            # try:
+            tic = time.time()
+            frames = extract_frames(video_path)             # frames=250x3x320x320,
+            print("frames", time.time() - tic)
+            tic = time.time()
+            audio = extract_audio(video_path)               # audio=(220672,)
+            print("audio", time.time() - tic)
+            # if audio is None:
+            #     error_count += 1
+            #     continue
+            tic = time.time()
+            key_frame = get_keyframe(frames, audio, device, model, soundnet)
+            print("keyframe", time.time() - tic)
+    
+            # save key-frame and audio
+            tic = time.time()
+            video_name = os.path.splitext(os.path.basename(video_file))[0]
+            key_frame.save(os.path.join(args.save_dir, "images", f"{video_name}.png"))
+            print("save frame", time.time() - tic)
+            tic = time.time()
+            sf.write(os.path.join(args.save_dir, "audio", f"{video_name}.wav"), audio, sample_rate)
+            print("save frame", time.time() - tic)s
+            # except Exception as e:
+            #     print("Error in processing video: ", e)
+            #     error_count += 1
         pbar.set_description(f"Errors: {error_count}")
         pbar.update(1)
 
-    print(f"Total number of files: {len(os.listdir(video_folder))}, and {error_count} files could not be processed")
+    print(f"Total number of files: {len(os.listdir(args.data_dir))}, and {error_count} files could not be processed")

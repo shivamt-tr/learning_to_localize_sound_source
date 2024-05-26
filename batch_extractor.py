@@ -19,7 +19,7 @@ from network import AVModel
 from soundnet import SoundNet
 
 
-sample_rate = 22050
+sample_rate = 22050  # for SoundNet model input
 mean = [0.485, 0.456, 0.406]
 std = [0.229, 0.224, 0.225]
 image_transforms = transforms.Compose([transforms.Resize((320, 320)),   # AVModel expects 320x320 input
@@ -36,7 +36,7 @@ def extract_frames(video_path):
         if not ret:
             break
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames.append(Image.fromarray(frame))
+        frames.append(Image.fromarray(frame))                                  # save each frame as a PIL
     cap.release()
     
     return frames
@@ -150,14 +150,18 @@ def process_video(video_file):
 
 
 if __name__ == "__main__":
-    
-    video_folder = '/shika_backup/data3/shivam/raw_data/vggsound'
-    save_at = '/shika_data4/shivam/dataset/vggsound_processed/'
-    os.makedirs(save_at, exist_ok=True)
-    os.makedirs(os.path.join(save_at, 'images'), exist_ok=True)
-    os.makedirs(os.path.join(save_at, 'audio'), exist_ok=True)
 
-    video_files = [os.path.join(video_folder, f) for f in os.listdir(video_folder) if f.endswith(".mp4")]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str)
+    parser.add_argument("--save_dir", type=str)
+    parser.add_argument("--num_workers", type=int, default=4)
+    args = parser.parse_args()
+    
+    os.makedirs(args.save_dir, exist_ok=True)
+    os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
+    os.makedirs(os.path.join(args.save_dir, 'audio'), exist_ok=True)
+
+    video_files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir) if f.endswith(".mp4")]
 
     def process_and_save(video_file):
         try:
@@ -165,14 +169,14 @@ if __name__ == "__main__":
             if key_frame is None or audio is None:
                 return False
             video_name = os.path.splitext(os.path.basename(video_file))[0]
-            key_frame.save(os.path.join(save_at, "images", f"{video_name}.png"))
-            sf.write(os.path.join(save_at, "audio", f"{video_name}.wav"), audio, sample_rate)
+            key_frame.save(os.path.join(args.save_dir, "images", f"{video_name}.png"))
+            sf.write(os.path.join(args.save_dir, "audio", f"{video_name}.wav"), audio, sample_rate)
             return True
         except Exception as e:
             print(f"Error in processing video: {e}")
             return False
 
-    with Pool(processes=4) as pool:
+    with Pool(processes=args.num_workers) as pool:
         results = list(tqdm(pool.imap(process_and_save, video_files), total=len(video_files)))
 
     error_count = len(video_files) - sum(results)
