@@ -133,8 +133,8 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    video_folder = '/shika_backup/data3/shivam/raw_data/vggsound'
-    save_at = '/shika_data4/shivam/dataset/vggsound_processed/'
+    video_folder = '/shika_data4/shivam/video_samples'
+    save_at = '/shika_data4/shivam/processed_normalized/'
     os.makedirs(save_at, exist_ok=True)
     os.makedirs(os.path.join(save_at, 'images'), exist_ok=True)
     os.makedirs(os.path.join(save_at, 'audio'), exist_ok=True)
