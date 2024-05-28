@@ -118,7 +118,7 @@ def get_keyframe(frames, audio, device, model, soundnet):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str)
-    parser.add_argument("--num_workers", type=int, default=4)
+    # parser.add_argument("--num_workers", type=int, default=4)
     args = parser.parse_args()
 
     video_dir = os.path.join(args.data_dir, "resized_video")
