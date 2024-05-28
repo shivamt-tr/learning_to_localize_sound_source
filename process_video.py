@@ -156,6 +156,6 @@ if __name__ == "__main__":
         pbar.update(1)
 
     with open(os.path.join(args.data_dir, 'video_frames.json'), 'w') as json_file:
-        json.dump(video_frames, json_file)
+        json.dump(video_keyframes, json_file)
 
     print(f"Total number of files: {len(os.listdir(args.data_dir))}, and {error_count} files could not be processed")
