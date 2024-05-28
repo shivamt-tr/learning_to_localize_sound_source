@@ -1,12 +1,12 @@
 import os
 import cv2
 import time
+import json
 import librosa
 import argparse
 import numpy as np
 from tqdm import tqdm
 from PIL import Image
-import soundfile as sf
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -22,7 +22,7 @@ from soundnet import SoundNet
 sample_rate = 22050  # for SoundNet model input
 mean = [0.485, 0.456, 0.406]
 std = [0.229, 0.224, 0.225]
-image_transforms = transforms.Compose([transforms.Resize((320, 320)),   # AVModel expects 320x320 input
+image_transforms = transforms.Compose([#transforms.Resize((320, 320)),   # AVModel expects 320x320 input
                                        transforms.ToTensor(),
                                        transforms.Normalize(mean=mean, std=std)])
 
@@ -40,25 +40,6 @@ def extract_frames(video_path):
     cap.release()
     
     return frames
-
-
-def extract_audio(video_path, target_length=220672):
-
-    # try:
-    # extract audio (the range of values is [-1, 1])
-    audio, _ = librosa.load(video_path, sr=sample_rate, mono=True)          # audio = (220672,), 22.05kHz and mono for input to SoundNet
-    np.clip(audio, -1, 1, out=audio)                                        # clip the samples to be in the range [-1, 1]
-    audio = np.tile(audio, 10)[:target_length]                              # repeat the audio samples and select a fixed size to maintain consistency across different length audio
-
-    # if audio length is less than the target length, pad with zeros
-    if audio.shape[0] < target_length:
-        audio = np.pad(audio, (0, target_length - audio.shape[0]), 'constant')
-        
-    # except Exception as e:
-    #     print(f"Error extracting audio from {video_path}: {e}")
-    #     return None
-
-    return audio
 
 
 def get_keyframe(frames, audio, device, model, soundnet):
@@ -127,20 +108,19 @@ def get_keyframe(frames, audio, device, model, soundnet):
 
     # print(f"{frame_idx+1} frame selected out of 250 frames")
 
-    return key_frame
+    return key_frame, frame_idx
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str)
-    parser.add_argument("--save_dir", type=str)
     parser.add_argument("--num_workers", type=int, default=4)
     args = parser.parse_args()
     
-    os.makedirs(args.save_dir, exist_ok=True)
-    os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
-    os.makedirs(os.path.join(args.save_dir, 'audio'), exist_ok=True)
+    video_dir = os.path.join(args.data_dir, "resized_video")
+    audio_dir = os.path.join(args.data_dir, "audio")
+    os.makedirs(os.path.join(args.data_dir, 'keyframe'), exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -150,37 +130,32 @@ if __name__ == "__main__":
     soundnet = SoundNet().to(device).eval()
     soundnet.load_state_dict(torch.load("soundnet8_final.pth"))
 
+    video_keyframes = dict()
     error_count = 0
-    pbar = tqdm(total=len(os.listdir(args.data_dir)), initial=0, desc="Processing")
-    for video_file in os.listdir(args.data_dir):
+    pbar = tqdm(total=len(os.listdir(video_dir)), initial=0, desc="Processing")
+    for video_file in os.listdir(video_dir):
         if video_file.endswith(".mp4"):
-            video_path = os.path.join(args.data_dir, video_file)
+            video_path = os.path.join(video_dir, video_file)
+            audio_path = os.path.join(audio_dir, os.path.splitext(video_file)[0]+".wav")
             # try:
-            tic = time.time()
             frames = extract_frames(video_path)             # frames=250x3x320x320,
-            print("frames", time.time() - tic)
-            tic = time.time()
-            audio = extract_audio(video_path)               # audio=(220672,)
-            print("audio", time.time() - tic)
+            audio, _ = librosa.load(audio_path, sr=sample_rate, mono=True)  # audio = (220672,), 22.05kHz and mono for input to SoundNet
             if audio is None:
                 error_count += 1
                 continue
-            tic = time.time()
-            key_frame = get_keyframe(frames, audio, device, model, soundnet)
-            print("keyframe", time.time() - tic)
+            key_frame, frame_idx = get_keyframe(frames, audio, device, model, soundnet)
     
             # save key-frame and audio
-            tic = time.time()
-            video_name = os.path.splitext(os.path.basename(video_file))[0]
-            key_frame.save(os.path.join(args.save_dir, "images", f"{video_name}.png"))
-            print("save frame", time.time() - tic)
-            tic = time.time()
-            sf.write(os.path.join(args.save_dir, "audio", f"{video_name}.wav"), audio, sample_rate)
-            print("save frame", time.time() - tic)
+            video_name = os.path.splitext(video_file)[0]
+            video_keyframes[video_name] = frame_idx
+            # key_frame.save(os.path.join(args.data_dir, "keyframe", f"{video_name}.png"))
             # except Exception as e:
             #     print("Error in processing video: ", e)
             #     error_count += 1
         pbar.set_description(f"Errors: {error_count}")
         pbar.update(1)
+
+    with open(os.path.join(args.data_dir, 'video_frames.json'), 'w') as json_file:
+        json.dump(video_frames, json_file)
 
     print(f"Total number of files: {len(os.listdir(args.data_dir))}, and {error_count} files could not be processed")
