@@ -134,10 +134,11 @@ if __name__ == "__main__":
     soundnet.load_state_dict(torch.load("soundnet8_final.pth"))
 
     video_keyframes = dict()
+    save_frequency = 10000
     error_count = 0
     pbar = tqdm(total=len(os.listdir(video_dir)), desc="Processing")
 
-    for video_file in os.listdir(video_dir):
+    for idx, video_file in enumerate(os.listdir(video_dir)):
         if video_file.endswith(".mp4"):
             video_path = os.path.join(video_dir, video_file)
             audio_path = os.path.join(audio_dir, os.path.splitext(video_file)[0] + ".wav")
@@ -152,6 +153,11 @@ if __name__ == "__main__":
                 video_name = os.path.splitext(video_file)[0]
                 video_keyframes[video_name] = frame_idx
                 key_frame.save(os.path.join(args.data_dir, "keyframe", f"{video_name}.png"))
+
+                if (idx + 1) % save_frequency == 0:
+                    with open(os.path.join(args.data_dir, 'video_frames.json'), 'a') as json_file:
+                        json.dump(video_keyframes, json_file)
+                    video_keyframes.clear()
             except Exception as e:
                 print(f"Error in processing video {video_file}: {e}")
                 error_count += 1
@@ -160,7 +166,8 @@ if __name__ == "__main__":
 
     pbar.close()
 
-    with open(os.path.join(args.data_dir, 'video_frames.json'), 'w') as json_file:
-        json.dump(video_keyframes, json_file)
+    if video_keyframes:  # Save any remaining keyframes
+        with open(os.path.join(args.data_dir, 'video_frames.json'), 'a') as json_file:
+            json.dump(video_keyframes, json_file)
 
     print(f"Total number of files: {len(os.listdir(video_dir))}, and {error_count} files could not be processed")
