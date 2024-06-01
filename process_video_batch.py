@@ -152,7 +152,7 @@ if __name__ == "__main__":
 
                 video_name = os.path.splitext(video_file)[0]
                 video_keyframes[video_name] = frame_idx
-                key_frame.save(os.path.join(args.data_dir, "keyframe", f"{video_name}.png"))
+                # key_frame.save(os.path.join(args.data_dir, "keyframe", f"{video_name}.png"))
 
                 if (idx + 1) % save_frequency == 0:
                     with open(os.path.join(args.data_dir, 'video_frames.json'), 'a') as json_file:
