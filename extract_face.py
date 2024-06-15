@@ -3,6 +3,7 @@ import cv2
 import nltk
 import torch
 import numpy as np
+from tqdm import tqdm
 
 from nltk.corpus import wordnet
 from facenet_pytorch import MTCNN
@@ -79,14 +80,14 @@ def enhance_face_with_realesrgan(face, model_name='RealESRGAN_x4plus', outscale=
     face_sr = cv2.cvtColor(face_sr, cv2.COLOR_RGB2BGR)
     return face_sr
 
-def detect_and_save_faces(input_folder, output_folder, keywords, device, padding_ratio=0.15, blur_threshold=50.0, min_face_size=64, model_name='RealESRGAN_x4plus', outscale=4, denoise_strength=0.5, tile=0, tile_pad=10, pre_pad=0, face_enhance=False, fp32=False, gpu_id=None):
-    mtcnn = MTCNN(keep_all=True, device=device)
+def detect_and_save_faces(input_folder, output_folder, keywords, device, padding_ratio=0.20, blur_threshold=100.0, min_face_size=64, min_prob=0.95, model_name='RealESRGAN_x4plus', outscale=4, denoise_strength=0.5, tile=0, tile_pad=10, pre_pad=0, face_enhance=False, fp32=False, gpu_id=None):
+    mtcnn = MTCNN(keep_all=True, device=device, min_face_size=min_face_size)
     expanded_keywords = expand_keywords(keywords)
     
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    for filename in os.listdir(input_folder):
+    for filename in tqdm(os.listdir(input_folder), desc="Processing"):
         if any(keyword in filename for keyword in expanded_keywords):
             img_path = os.path.join(input_folder, filename)
             img = cv2.imread(img_path)
@@ -94,10 +95,12 @@ def detect_and_save_faces(input_folder, output_folder, keywords, device, padding
                 continue
 
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            boxes, _ = mtcnn.detect(img_rgb)
-
+            boxes, probs, landmarks = mtcnn.detect(img_rgb, landmarks=True)
             if boxes is not None:
-                for i, box in enumerate(boxes):
+                for i, (box, prob, landmark) in enumerate(zip(boxes, probs, landmarks)):
+                    if prob < min_prob or landmark is None or len(landmark) != 5:
+                        continue
+
                     x1, y1, x2, y2 = [int(b) for b in box]
 
                     width = x2 - x1
@@ -113,7 +116,7 @@ def detect_and_save_faces(input_folder, output_folder, keywords, device, padding
 
                     face_with_surrounding = img[y1:y2, x1:x2]
 
-                    if not is_blurry(face_with_surrounding, blur_threshold) and width >= min_face_size and height >= min_face_size:
+                    if not is_blurry(face_with_surrounding, blur_threshold):
                         enhanced_face = enhance_face_with_realesrgan(face_with_surrounding, model_name, outscale, denoise_strength, tile, tile_pad, pre_pad, face_enhance, fp32, gpu_id)
 
                         resized_face = cv2.resize(enhanced_face, (256, 256))
@@ -122,9 +125,18 @@ def detect_and_save_faces(input_folder, output_folder, keywords, device, padding
                         cv2.imwrite(face_filename, resized_face)
 
 
-input_folder = '/shika_data4/shivam/dataset/vggsound_processed/images'
-output_folder = '/shika_data4/shivam/learning_to_localize_sound_source/faces'
-keywords = ["laugh", "giggling", "sob", "sobbing", "nose", "smile", "sneeze", "cry", "cough", "scream", "explode", "explosion"]
+input_folder = '/shika_backup/data3/shivam/audio-visual-dataset/keyframe_split'
+output_folder = '/shika_backup/data3/shivam/audio-visual-dataset/keyframe_face'
+# input_folder = '/shika_data4/shivam/dataset/vggsound_processed/images'
+# output_folder = '/shika_data4/shivam/dataset/vggsound_processed/face'
+keywords = ["laugh", "giggling", "sob", "sobbing", "nose", "nose blow",
+            "laughter", "snore", "snoring", "smile", "sneeze", "cry",
+            "cough", "scream", "explode", "explosion", "burp", "burping",
+            "eructation", "hiccup", "sing", "choir", "whistle", "whistling",
+            "whoop", "chatter", "whimper", "breathing", "grunt", "grunting",
+            "throat", "sigh", "gurgling", "humming", "beatboxing", ]
+
+# Reference: https://research.google.com/audioset/dataset/index.html
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 detect_and_save_faces(input_folder, output_folder, keywords, device)
