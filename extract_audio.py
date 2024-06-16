@@ -20,9 +20,14 @@ def process_video(args):
 
     try:
         # extract audio (the range of values is [-1, 1])
-        audio, _ = librosa.load(video_path, sr=sample_rate, mono=True)  # audio = (220672,), 22.05kHz and mono for input to SoundNet
-        np.clip(audio, -1, 1, out=audio)  # clip the samples to be in the range [-1, 1]
-        audio = np.tile(audio, 10)[:target_length]  # repeat the audio samples and select a fixed size to maintain consistency across different length audio
+        # audio = (220672,), 22.05kHz and mono for input to SoundNet
+        audio, _ = librosa.load(video_path, sr=sample_rate, mono=True)
+        
+        # clip the samples to be in the range [-1, 1]
+        np.clip(audio, -1, 1, out=audio)  
+        
+        # repeat the audio samples and select a fixed size length
+        audio = np.tile(audio, 10)[:target_length]
 
         # if audio length is less than the target length, pad with zeros
         if audio.shape[0] < target_length:

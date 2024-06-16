@@ -198,11 +198,8 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
 
                 # Convert the frame to RGB format
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # Detect faces and landmarks
-                tic = time.time()
+
                 boxes, probs, landmarks = mtcnn.detect(frame_rgb, landmarks=True)
-                print("mt", time.time() - tic)
                 if boxes is not None:
                     for i, (box, prob, landmark) in enumerate(zip(boxes, probs, landmarks)):
                         if prob < min_prob or landmark is None or len(landmark) != 5:
