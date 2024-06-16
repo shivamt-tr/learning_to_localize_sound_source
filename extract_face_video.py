@@ -11,6 +11,7 @@ Reference:
 import os
 import cv2
 import nltk
+import time
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -24,7 +25,7 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.download_util import load_file_from_url
 from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
-
+# from face_parsing import BiSeNet
 
 nltk.download('wordnet')
 
@@ -85,99 +86,40 @@ def is_blurry(image, threshold=100.0):
     return variance < threshold
 
 
-def enhance_face_with_realesrgan(face, model_name='RealESRGAN_x4plus', outscale=4, denoise_strength=0.5, tile=0, tile_pad=10, pre_pad=0, gpu_id=None):
-    """
-    Enhance the resolution of a face image using Real-ESRGAN and optionally GFPGAN for face enhancement.
+# def segment_face(face, segmenter, device):
+#     """
+#     Segments the face region from the input face image using a segmentation model.
 
-    Parameters:
-    face (ndarray): Input face image in BGR format.
-    model_name (str): The name of the model to use for enhancement. Default is 'RealESRGAN_x4plus'.
-    outscale (int): The final upscaling factor. Default is 4.
-    denoise_strength (float): Denoise strength, used only for the 'realesr-general-x4v3' model. Default is 0.5.
-    tile (int): Tile size for processing to avoid memory issues. Default is 0 (no tiling).
-    tile_pad (int): Tile padding size. Default is 10.
-    pre_pad (int): Pre padding size at each border. Default is 0.
+#     Parameters:
+#     face (ndarray): Input face image in BGR format.
+#     segmenter (torch.nn.Module): Pre-trained face segmentation model.
+#     device (torch.device): Device to run the segmentation model on.
 
-    Returns:
-    ndarray: Enhanced face image in BGR format.
-    """
+#     Returns:
+#     tuple: Bounding box (x1, y1, x2, y2) of the segmented face region.
+#     """
+#     face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
+#     face_rgb = cv2.resize(face_rgb, (512, 512))
+#     face_rgb = torch.from_numpy(face_rgb).float().permute(2, 0, 1).unsqueeze(0) / 255.0
+#     face_rgb = face_rgb.to(device)
 
-    # Remove file extension from model name
-    model_name = model_name.split('.')[0]
-
-    # Select the appropriate model and its configuration
-    if model_name == 'RealESRGAN_x4plus':
-        model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-        netscale = 4
-        file_url = ['https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth']
-    elif model_name == 'RealESRNet_x4plus':
-        model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-        netscale = 4
-        file_url = ['https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth']
-    elif model_name == 'RealESRGAN_x2plus':
-        model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=2)
-        netscale = 2
-        file_url = ['https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth']
-    elif model_name == 'realesr-general-x4v3':
-        model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type='prelu')
-        netscale = 4
-        file_url = [
-            'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth',
-            'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth'
-        ]
-
-    # Determine the model path and download if not available
-    model_path = os.path.join('weights', model_name + '.pth')
-    if not os.path.isfile(model_path):
-        for url in file_url:
-            model_path = load_file_from_url(
-                url=url, model_dir=os.path.join('weights'), progress=True, file_name=None)
-
-    # Use dni_weight to control the denoise strength for 'realesr-general-x4v3' model
-    dni_weight = None
-    if model_name == 'realesr-general-x4v3' and denoise_strength != 1:
-        wdn_model_path = model_path.replace('realesr-general-x4v3', 'realesr-general-wdn-x4v3')
-        model_path = [model_path, wdn_model_path]
-        dni_weight = [denoise_strength, 1 - denoise_strength]
-
-    # Initialize the Real-ESRGAN upsampler
-    upsampler = RealESRGANer(
-        scale=netscale,
-        model_path=model_path,
-        dni_weight=dni_weight,
-        model=model,
-        tile=tile,
-        tile_pad=tile_pad,
-        pre_pad=pre_pad,
-        half=False,  # uses fp16 precision when set to True
-        gpu_id=gpu_id
-    )
+#     with torch.no_grad():
+#         out = segmenter(face_rgb)[0]
+#     parsing = out.squeeze(0).cpu().numpy().argmax(0)
     
-    # Initialize the GFPGAN face enhancer
-    face_enhancer = GFPGANer(
-        model_path='https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth',
-        upscale=outscale,
-        arch='clean',
-        channel_multiplier=2,
-        bg_upsampler=upsampler
-    )
+#     # Extract the bounding box of the face region
+#     face_mask = (parsing > 0).astype(np.uint8)
+#     contours, _ = cv2.findContours(face_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#     if len(contours) == 0:
+#         return None, None, None, None  # Return invalid coordinates if no contours are found
+#     x, y, w, h = cv2.boundingRect(contours[0])
 
-    # Convert the face image to RGB format
-    face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-    
-    # Enhance the face using GFPGAN
-    _, _, face_sr = face_enhancer.enhance(face, has_aligned=False, only_center_face=False, paste_back=True)
-    # face_sr, _ = upsampler.enhance(face, outscale=outscale)
-
-    # Convert the enhanced face back to BGR format
-    face_sr = cv2.cvtColor(face_sr, cv2.COLOR_RGB2BGR)
-    
-    return face_sr
+#     return x, y, x + w, y + h
 
 
 def detect_and_save_faces_from_video(input_folder, output_folder, keywords, device, padding_ratio=0.25,
-                                     blur_threshold=100.0, min_face_size=64, min_prob=0.95, model_name='RealESRGAN_x4plus',
-                                     outscale=4, denoise_strength=0.5, tile=0, tile_pad=10, pre_pad=0, gpu_id=None):
+                                     blur_threshold=100.0, min_face_size=64, min_prob=0.95,
+                                     outscale=4, denoise_strength=0.5, tile=0, tile_pad=10, pre_pad=0):
     """
     Detects faces in video frames, enhances the faces using Real-ESRGAN, and saves the enhanced faces as images.
 
@@ -190,7 +132,6 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
     blur_threshold (float): Threshold for detecting blurry images. Default is 100.0.
     min_face_size (int): Minimum face size for detection. Default is 64.
     min_prob (float): Minimum probability threshold for face detection. Default is 0.95.
-    model_name (str): Model name for Real-ESRGAN. Default is 'RealESRGAN_x4plus'.
     outscale (int): Upscale factor for Real-ESRGAN. Default is 4.
     denoise_strength (float): Denoise strength for Real-ESRGAN. Default is 0.5.
     tile (int): Tile size for Real-ESRGAN. Default is 0.
@@ -203,6 +144,34 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
     
     # Initialize the MTCNN face detector
     mtcnn = MTCNN(keep_all=True, device=device, min_face_size=min_face_size)
+
+    # Initialize the face enhancement model
+    esrmodel = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
+
+    # Initialize the Real-ESRGAN upsampler
+    upsampler = RealESRGANer(
+        scale=4,
+        model_path='RealESRGAN_x4plus.pth',
+        dni_weight=None,
+        model=esrmodel,
+        tile=tile,
+        tile_pad=tile_pad,
+        pre_pad=pre_pad,
+        half=False,            # uses fp16 precision when set to True
+        device=device)  
+    
+    # Initialize the GFPGAN face enhancer
+    face_enhancer = GFPGANer(
+        model_path='https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth',
+        upscale=outscale,
+        arch='clean',
+        channel_multiplier=2,
+        bg_upsampler=upsampler
+    )
+
+    # Initialize the face segmentation model
+    # segmenter = BiSeNet(n_classes=19).to(device).eval()
+    # segmenter.load_state_dict(torch.load('79999_iter.pth'), strict=False)
     
     # Expand keywords using WordNet
     expanded_keywords = expand_keywords(keywords)
@@ -231,7 +200,9 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 
                 # Detect faces and landmarks
+                tic = time.time()
                 boxes, probs, landmarks = mtcnn.detect(frame_rgb, landmarks=True)
+                print("mt", time.time() - tic)
                 if boxes is not None:
                     for i, (box, prob, landmark) in enumerate(zip(boxes, probs, landmarks)):
                         if prob < min_prob or landmark is None or len(landmark) != 5:
@@ -254,8 +225,27 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
 
                         # Check if the face is not blurry
                         if not is_blurry(face_with_surrounding, blur_threshold):
+                            # Segment the face to include the full region
+                            # seg_x1, seg_y1, seg_x2, seg_y2 = segment_face(face_with_surrounding, segmenter, device)
+                            # if seg_x1 is None or seg_y1 is None or seg_x2 is None or seg_y2 is None:
+                            #     continue
+                            
+                            # segmented_face = face_with_surrounding[seg_y1:seg_y2, seg_x1:seg_x2]
+                            # if segmented_face.size == 0:
+                            #     continue
+
                             # Enhance the face using Real-ESRGAN
-                            enhanced_face = enhance_face_with_realesrgan(face_with_surrounding, model_name, outscale, denoise_strength, tile, tile_pad, pre_pad, gpu_id)
+                            
+                            # Convert the face image to RGB format
+                            face_with_surrounding = cv2.cvtColor(face_with_surrounding, cv2.COLOR_BGR2RGB)
+                            
+                            # Enhance the face using GFPGAN
+                            # tic = time.time()
+                            _, _, face_sr = face_enhancer.enhance(face_with_surrounding, has_aligned=False, only_center_face=False, paste_back=True)
+                            # print("enh", time.time() - tic)
+
+                            # Convert the enhanced face back to BGR format
+                            enhanced_face = cv2.cvtColor(face_sr, cv2.COLOR_RGB2BGR)
 
                             # Resize the enhanced face to 256x256
                             resized_face = cv2.resize(enhanced_face, (256, 256))
@@ -271,20 +261,18 @@ def main():
     parser = argparse.ArgumentParser(description="Detect and save faces from videos with enhancement.")
     parser.add_argument('--input_folder', type=str, default='/shika_data4/shivam/keyframe_split_remaining', help='Path to the input folder containing videos.')
     parser.add_argument('--output_folder', type=str, default='/shika_data4/shivam/keyframe_face_remaining', help='Path to the output folder to save the processed images.')
-    parser.add_argument('--padding_ratio', type=float, default=0.25, help='Padding ratio around the detected face.')
+    parser.add_argument('--padding_ratio', type=float, default=0.5, help='Padding ratio around the detected face.')
     parser.add_argument('--blur_threshold', type=float, default=100.0, help='Threshold to determine if an image is blurry.')
     parser.add_argument('--min_face_size', type=int, default=64, help='Minimum size of the face to detect.')
     parser.add_argument('--min_prob', type=float, default=0.95, help='Minimum probability threshold for face detection.')
-    parser.add_argument('--model_name', type=str, default='RealESRGAN_x4plus', help='Name of the model for face enhancement.')
     parser.add_argument('--outscale', type=int, default=4, help='Output scale for the face enhancement.')
     parser.add_argument('--denoise_strength', type=float, default=0.5, help='Denoise strength for the face enhancement.')
     parser.add_argument('--tile', type=int, default=0, help='Tile size for the face enhancement.')
     parser.add_argument('--tile_pad', type=int, default=10, help='Tile padding size for the face enhancement.')
     parser.add_argument('--pre_pad', type=int, default=0, help='Pre padding size for the face enhancement.')
-    parser.add_argument('--gpu', type=int, default=0)
     args = parser.parse_args()
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     keywords = ["laugh", "giggling", "sob", "sobbing", "nose", "nose blow",
                 "laughter", "snore", "snoring", "smile", "sneeze", "cry",
@@ -302,13 +290,11 @@ def main():
         blur_threshold=args.blur_threshold,
         min_face_size=args.min_face_size,
         min_prob=args.min_prob,
-        model_name=args.model_name,
         outscale=args.outscale,
         denoise_strength=args.denoise_strength,
         tile=args.tile,
         tile_pad=args.tile_pad,
         pre_pad=args.pre_pad,
-        gpu_id=args.gpu
     )
 
 

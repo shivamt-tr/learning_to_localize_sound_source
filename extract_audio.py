@@ -1,11 +1,8 @@
 import os
-import cv2
-import imageio
 import librosa
 import argparse
 import numpy as np
 from tqdm import tqdm
-from PIL import Image
 import soundfile as sf
 from multiprocessing import Pool, cpu_count
 import warnings
