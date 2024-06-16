@@ -4,6 +4,8 @@ python extract_face.py --input_folder "/shika_data4/shivam/keyframe_split_remain
 Reference: 
 1. https://research.google.com/audioset/dataset/index.html
 2. https://github.com/xinntao/Real-ESRGAN/
+3. https://github.com/Tinglok/avstyle/blob/main/dataset/Into-the-Wild/video2jpg.py
+4. https://www.kaggle.com/code/timesler/guide-to-mtcnn-in-facenet-pytorch
 """
 
 import os
