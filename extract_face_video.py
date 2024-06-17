@@ -198,8 +198,11 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
 
                 # Convert the frame to RGB format
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
+                
+                # Detect faces and landmarks
+                # tic = time.time()
                 boxes, probs, landmarks = mtcnn.detect(frame_rgb, landmarks=True)
+                # print("mt", time.time() - tic)
                 if boxes is not None:
                     for i, (box, prob, landmark) in enumerate(zip(boxes, probs, landmarks)):
                         if prob < min_prob or landmark is None or len(landmark) != 5:
@@ -231,7 +234,27 @@ def detect_and_save_faces_from_video(input_folder, output_folder, keywords, devi
                             # if segmented_face.size == 0:
                             #     continue
 
+                            # Segment the face to include the full region
+                            # seg_x1, seg_y1, seg_x2, seg_y2 = segment_face(face_with_surrounding, segmenter, device)
+                            # if seg_x1 is None or seg_y1 is None or seg_x2 is None or seg_y2 is None:
+                            #     continue
+                            
+                            # segmented_face = face_with_surrounding[seg_y1:seg_y2, seg_x1:seg_x2]
+                            # if segmented_face.size == 0:
+                            #     continue
+
                             # Enhance the face using Real-ESRGAN
+                            
+                            # Convert the face image to RGB format
+                            face_with_surrounding = cv2.cvtColor(face_with_surrounding, cv2.COLOR_BGR2RGB)
+                            
+                            # Enhance the face using GFPGAN
+                            # tic = time.time()
+                            _, _, face_sr = face_enhancer.enhance(face_with_surrounding, has_aligned=False, only_center_face=False, paste_back=True)
+                            # print("enh", time.time() - tic)
+
+                            # Convert the enhanced face back to BGR format
+                            enhanced_face = cv2.cvtColor(face_sr, cv2.COLOR_RGB2BGR)
                             
                             # Convert the face image to RGB format
                             face_with_surrounding = cv2.cvtColor(face_with_surrounding, cv2.COLOR_BGR2RGB)
@@ -259,16 +282,19 @@ def main():
     parser.add_argument('--input_folder', type=str, default='/shika_data4/shivam/keyframe_split_remaining', help='Path to the input folder containing videos.')
     parser.add_argument('--output_folder', type=str, default='/shika_data4/shivam/keyframe_face_remaining', help='Path to the output folder to save the processed images.')
     parser.add_argument('--padding_ratio', type=float, default=0.5, help='Padding ratio around the detected face.')
+    parser.add_argument('--padding_ratio', type=float, default=0.5, help='Padding ratio around the detected face.')
     parser.add_argument('--blur_threshold', type=float, default=100.0, help='Threshold to determine if an image is blurry.')
     parser.add_argument('--min_face_size', type=int, default=64, help='Minimum size of the face to detect.')
     parser.add_argument('--min_prob', type=float, default=0.95, help='Minimum probability threshold for face detection.')
     parser.add_argument('--outscale', type=int, default=4, help='Output scale for the face enhancement.')
     parser.add_argument('--denoise_strength', type=float, default=0.5, help='Denoise strength for the face enhancement.')
-    parser.add_argument('--tile', type=int, default=0, help='Tile size for the face enhancement.')
+    # if you encounter cuda out of memory issues, set tile to a small number, this will ensure that image is processed in tiles
+    parser.add_argument('--tile', type=int, default=4, help='Tile size for the face enhancement.')
     parser.add_argument('--tile_pad', type=int, default=10, help='Tile padding size for the face enhancement.')
     parser.add_argument('--pre_pad', type=int, default=0, help='Pre padding size for the face enhancement.')
     args = parser.parse_args()
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     keywords = ["laugh", "giggling", "sob", "sobbing", "nose", "nose blow",
@@ -297,3 +323,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

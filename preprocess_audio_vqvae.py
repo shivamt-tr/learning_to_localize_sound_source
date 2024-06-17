@@ -165,8 +165,8 @@ def preprocess_and_save(folder_path, output_folder, keywords, sr=22050):
         list(tqdm(pool.imap(process_file, tasks), total=len(tasks)))
 
 
-input_folder = '/mnt/nvme-4tb/shivam/avdataset/audio'
-output_folder = '/mnt/nvme-4tb/shivam/avdataset/precomputed_mel'
+input_folder = '/backup/data3/shivam/audio-visual-dataset/audio_balanced/audio/'
+output_folder = '/backup/data3/shivam/audio-visual-dataset/balanced_precomputed_mel'
 keywords = ["laugh", "giggling", "sob", "sobbing", "nose", "nose blow",
             "laughter", "snore", "snoring", "smile", "sneeze", "cry",
             "cough", "scream", "explode", "explosion", "burp", "burping",

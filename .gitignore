@@ -1,4 +1,9 @@
+audioset_download/*.csv
+vggsound_download/*.csv
+gfpgan/weights/*.pth
+models/
 video_samples/
 *.pth
 *.pyc
 *.png
+*.mp4
